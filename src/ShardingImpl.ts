@@ -7,7 +7,6 @@ import { pipe } from "@effect/data/Function"
 import * as HashMap from "@effect/data/HashMap"
 import * as HashSet from "@effect/data/HashSet"
 import * as Option from "@effect/data/Option"
-import * as Cause from "@effect/io/Cause"
 import type * as Deferred from "@effect/io/Deferred"
 import * as Effect from "@effect/io/Effect"
 import * as Hub from "@effect/io/Hub"
@@ -28,6 +27,7 @@ import * as ReplyId from "@effect/shardcake/ReplyId"
 import type { Throwable } from "@effect/shardcake/ShardError"
 import * as ShardingRegistrationEvent from "@effect/shardcake/ShardingRegistrationEvent"
 import { ShardManagerClient } from "@effect/shardcake/ShardManagerClient"
+import * as StreamMessage from "@effect/shardcake/StreamMessage"
 import type * as StreamReplier from "@effect/shardcake/StreamReplier"
 import * as Stream from "@effect/stream/Stream"
 
@@ -402,7 +402,7 @@ function make(
             pipe(
               HashMap.get(_, recipientTypeName),
               Option.match(
-                () => Effect.fail(EntityTypeNotRegistered(recipientTypeName, pod)),
+                () => Effect.fail<Throwable>(EntityTypeNotRegistered(recipientTypeName, pod)),
                 (state) =>
                   pipe(
                     (state.entityManager as EntityManager.EntityManager<Msg>).send(entityId, msg, replyId, replyChannel)
@@ -414,26 +414,51 @@ function make(
     } else {
       return pipe(
         serialization.encode(msg, msgSchema),
-        Effect.flatMap((bytes) =>
-          pipe(
-            pods.sendMessage(
-              pod,
-              BinaryMessage.make(entityId, recipientTypeName, bytes, replyId)
-            ),
-            Effect.tapError(() => Effect.unit())
+        Effect.flatMap((bytes) => {
+          const errorHandling = (_: Throwable) => pipe(
+Effect.whenCase(() => isPodUnavailableError(_), b => )
           )
-        ),
-        Effect.flatMap(
-          Option.match(
-            () => Effect.succeed(Option.none()),
-            (bytes) => {
-              if (Message.isMessage<Res>(msg)) {
-                return pipe(serialization.decode(bytes, msg.replier.schema), Effect.map(Option.some))
-              }
-              return Effect.die("Error, schema is missing in request message")
-            }
-          )
-        )
+
+          const binaryMessage = BinaryMessage.make(entityId, recipientTypeName, bytes, replyId)
+
+          if (ReplyChannel.isReplyChannelFromDeferred(replyChannel)) {
+            return pipe(
+              pods.sendMessage(pod, binaryMessage),
+              Effect.tapError(errorHandling),
+              Effect.flatMap(
+                Option.match(
+                  () => replyChannel.end,
+                  (bytes) => {
+                    if (Message.isMessage(msg)) {
+                      return pipe(
+                        serialization.decode(bytes, msg.replier.schema),
+                        Effect.flatMap(replyChannel.replySingle)
+                      )
+                    }
+                    return Effect.die(NotAMessageWithReplier(msg))
+                  }
+                )
+              )
+            )
+          }
+
+          if (ReplyChannel.isReplyChannelFromQueue(replyChannel)) {
+            return pipe(
+              replyChannel.replyStream(pipe(
+                pods.sendMessageStreaming(pod, binaryMessage),
+                Stream.tapError(errorHandling),
+                Stream.mapEffect((bytes) => {
+                  if (StreamMessage.isStreamMessage(msg)) {
+                    return serialization.decode(bytes, msg.replier.schema)
+                  }
+                  return Effect.die(NotAMessageWithReplier(msg))
+                })
+              ))
+            )
+          }
+
+          return Effect.dieMessage("got unknown replyChannel type")
+        })
       )
     }
   }
@@ -452,7 +477,7 @@ function make(
     }
 
     function send(entityId: string) {
-      return <A extends Msg & Message.Message<any>>(fn: (replyId: ReplyId.ReplyId) => Msg) => {
+      return <A extends Msg & Message.Message<any>>(fn: (replyId: ReplyId.ReplyId) => A) => {
         return pipe(
           ReplyId.makeEffect,
           Effect.flatMap((replyId) => {
@@ -471,25 +496,66 @@ function make(
       }
     }
 
-    function sendMessage<Res>(entityId: string, msg: Msg, replyId: Option.Option<ReplyId.ReplyId>) {
+    function sendStream(entityId: string) {
+      return <A extends Msg & StreamMessage.StreamMessage<any>>(fn: (replyId: ReplyId.ReplyId) => A) => {
+        return pipe(
+          ReplyId.makeEffect,
+          Effect.flatMap((replyId) => {
+            const body = fn(replyId)
+            return sendMessageStreaming<StreamMessage.Success<A>>(entityId, body, Option.some(replyId))
+          })
+        )
+      }
+    }
+
+    function sendMessage<Res>(
+      entityId: string,
+      msg: Msg,
+      replyId: Option.Option<ReplyId.ReplyId>
+    ): Effect.Effect<never, Throwable, Option.Option<Res>> {
+      return Effect.gen(function*(_) {
+        const replyChannel = yield* _(ReplyChannel.single<Res>())
+        yield* _(sendMessageGeneric(entityId, msg, replyId, replyChannel))
+        return yield* _(replyChannel.output)
+      })
+    }
+
+    function sendMessageStreaming<Res>(
+      entityId: string,
+      msg: Msg,
+      replyId: Option.Option<ReplyId.ReplyId>
+    ): Effect.Effect<never, Throwable, Stream.Stream<never, Throwable, Res>> {
+      return Effect.gen(function*(_) {
+        const replyChannel = yield* _(ReplyChannel.stream<Res>())
+        yield* _(sendMessageGeneric(entityId, msg, replyId, replyChannel))
+        return replyChannel.output
+      })
+    }
+
+    function sendMessageGeneric<Res>(
+      entityId: string,
+      msg: Msg,
+      replyId: Option.Option<ReplyId.ReplyId>,
+      replyChannel: ReplyChannel.ReplyChannel<Res>
+    ) {
       const shardId = getShardId(entityType, entityId)
 
-      const trySend: Effect.Effect<never, Throwable, Option.Option<Res>> = pipe(
+      const trySend: Effect.Effect<never, Throwable, void> = pipe(
         Effect.Do(),
         Effect.bind("shards", () => Ref.get(shardAssignments)),
         Effect.let("pod", ({ shards }) => HashMap.get(shards, shardId)),
         Effect.bind("response", ({ pod }) => {
           if (Option.isSome(pod)) {
-            const send = sendToPod<Msg, Res>(
-              entityType.name,
-              entityId,
-              msg,
-              entityType.schema,
-              pod.value,
-              replyId
-            )
             return pipe(
-              send,
+              sendToPod<Msg, Res>(
+                entityType.name,
+                entityId,
+                msg,
+                entityType.schema,
+                pod.value,
+                replyId,
+                replyChannel
+              ),
               Effect.catchSome((_) => {
                 if (isEntityNotManagedByThisPodError(_) || isPodUnavailableError(_)) {
                   return pipe(
@@ -499,19 +565,20 @@ function make(
                   )
                 }
                 return Option.none()
-              })
+              }),
+              Effect.onError(replyChannel.fail)
             )
           }
 
           return pipe(Effect.sleep(Duration.millis(100)), Effect.zipRight(trySend))
         }),
-        Effect.map((_) => _.response)
+        Effect.asUnit
       )
 
       return trySend
     }
 
-    return { sendDiscard, send }
+    return { sendDiscard, send, sendStream }
   }
 
   function broadcaster<Msg>(
@@ -533,26 +600,33 @@ function make(
         Effect.bind("pods", () => getPods),
         Effect.bind("response", ({ pods }) =>
           Effect.forEachPar(pods, (pod) => {
-            const trySend: Effect.Effect<never, Throwable, Option.Option<Res>> = pipe(
-              sendToPod<Msg, Res>(
-                topicType.name,
-                topic,
-                body,
-                topicType.schema,
-                pod,
-                replyId
-              ),
-              Effect.catchSome((_) => {
-                if (isPodUnavailableError(_)) {
-                  return pipe(
-                    Effect.sleep(Duration.millis(200)),
-                    Effect.zipRight(trySend),
-                    Option.some
-                  )
-                }
-                return Option.none()
-              })
-            )
+            const trySend: Effect.Effect<never, Throwable, Option.Option<Res>> = Effect.gen(function*(_) {
+              const replyChannel = yield* _(ReplyChannel.single<Res>())
+              yield* _(pipe(
+                sendToPod<Msg, Res>(
+                  topicType.name,
+                  topic,
+                  body,
+                  topicType.schema,
+                  pod,
+                  replyId,
+                  replyChannel
+                ),
+                Effect.catchSome((_) => {
+                  if (isPodUnavailableError(_)) {
+                    return pipe(
+                      Effect.sleep(Duration.millis(200)),
+                      Effect.zipRight(trySend),
+                      Option.some
+                    )
+                  }
+                  return Option.none()
+                }),
+                Effect.onError(replyChannel.fail)
+              ))
+              return yield* _(replyChannel.output)
+            })
+
             return pipe(
               trySend,
               Effect.flatMap((_) => {
@@ -643,8 +717,19 @@ function make(
       const processBinary = (msg: BinaryMessage.BinaryMessage, replyChannel: ReplyChannel.ReplyChannel<any>) =>
         pipe(
           serialization.decode<Req>(msg.body, recipientType.schema),
-          Effect.flatMap((_) => entityManager.send(msg.entityId, _, msg.replyId, replyChannel)),
-          Effect.catchAllCause(replyChannel.fail)
+          Effect.flatMap((_) =>
+            pipe(
+              entityManager.send(msg.entityId, _, msg.replyId, replyChannel),
+              Effect.as(
+                Message.isMessage<any>(msg) ?
+                  Option.some(msg.replier.schema) :
+                  StreamMessage.isStreamMessage<any>(msg) ?
+                  Option.some(msg.replier.schema) :
+                  Option.none()
+              )
+            )
+          ),
+          Effect.catchAllCause((_) => Effect.as(replyChannel.fail(_), Option.none()))
         )
 
       yield* $(

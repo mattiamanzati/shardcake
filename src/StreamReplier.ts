@@ -44,7 +44,7 @@ export const streamReplier = <R>(id: ReplyId.ReplyId, schema: Schema.Schema<any,
 }
 
 /** @internal */
-export function isStreamStreamReplier<R>(value: unknown): value is StreamReplier<R> {
+export function isStreamReplier<R>(value: unknown): value is StreamReplier<R> {
   return typeof value === "object" && value !== null && TypeId in value
 }
 

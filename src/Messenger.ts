@@ -1,11 +1,11 @@
 /**
  * @since 1.0.0
  */
-import { pipe } from "@effect/data/Function"
 import type * as Effect from "@effect/io/Effect"
 import type * as Message from "@effect/shardcake/Message"
 import type * as ReplyId from "@effect/shardcake/ReplyId"
 import type { Throwable } from "@effect/shardcake/ShardError"
+import type * as StreamMessage from "@effect/shardcake/StreamMessage"
 import type * as Stream from "@effect/stream/Stream"
 
 /**
@@ -41,9 +41,9 @@ export interface Messenger<Msg> {
    */
   sendStream(
     entityId: string
-  ): <A extends Msg & Message.Message<any>>(
-    msg: (replyId: ReplyId.ReplyId) => A
-  ) => Effect.Effect<never, Throwable, Stream.Stream<never, Throwable, Message.Success<A>>>
+  ): <A extends Msg & StreamMessage.StreamMessage<any>>(
+    fn: (replyId: ReplyId.ReplyId) => A
+  ) => Effect.Effect<never, Throwable, Stream.Stream<never, Throwable, StreamMessage.Success<A>>>
 
   /**
    * Send a message and receive a stream of responses of type `Res` while restarting the stream when the remote entity
@@ -55,6 +55,7 @@ export interface Messenger<Msg> {
    * cursor according to what we've seen in the previous stream of responses.
    * @since 1.0.0
    */
+  /*
   sendStreamAutoRestart<Cursor>(
     entityId: string,
     cursor: Cursor
@@ -62,7 +63,7 @@ export interface Messenger<Msg> {
     msg: (cursor: Cursor) => (replyId: ReplyId.ReplyId) => A
   ) => (
     updateCursor: (cursor: Cursor, res: Message.Success<A>) => Cursor
-  ) => Effect.Effect<never, Throwable, Stream.Stream<never, Throwable, Message.Success<A>>>
+  ) => Effect.Effect<never, Throwable, Stream.Stream<never, Throwable, Message.Success<A>>>*/
 }
 
 /**
