@@ -11,6 +11,7 @@ import * as Queue from "@effect/io/Queue"
 import type { Throwable } from "@effect/shardcake/ShardError"
 import * as Stream from "@effect/stream/Stream"
 import * as Take from "@effect/stream/Take"
+
 /**
  * @since 1.0.0
  * @category symbol
