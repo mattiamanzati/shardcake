@@ -437,7 +437,6 @@ function make(
                         Effect.flatMap(replyChannel.replySingle)
                       )
                     }
-                    console.log("replier not found in", msg)
                     return Effect.die(NotAMessageWithReplier(msg))
                   }
                 )

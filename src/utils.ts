@@ -69,7 +69,7 @@ export function sendInternal<A>(send: Schema.Schema<any, A>) {
   return (url: string, data: A) =>
     pipe(
       jsonStringify(data, send),
-      Effect.tap((body) => Effect.logDebug("Sending HTTP request to " + url + " with data " + body)),
+      // Effect.tap((body) => Effect.logDebug("Sending HTTP request to " + url + " with data " + body)),
       Effect.flatMap((body) =>
         Effect.tryCatchPromise(
           () => {
@@ -80,8 +80,8 @@ export function sendInternal<A>(send: Schema.Schema<any, A>) {
           },
           (error) => FetchError(url, body, String(error))
         )
-      ),
-      Effect.tap((response) => Effect.logDebug(url + " status: " + response.status))
+      )
+      // Effect.tap((response) => Effect.logDebug(url + " status: " + response.status))
     )
 }
 
@@ -91,7 +91,6 @@ export function send<A, E, R>(send: Schema.Schema<any, A>, reply: Schema.Schema<
     pipe(
       sendInternal(send)(url, data),
       Effect.flatMap((response) => Effect.promise(() => response.text())),
-      Effect.tap((response) => Effect.logDebug(url + " body: " + response)),
       Effect.flatMap((data) => jsonParse(data, reply)),
       Effect.orDie,
       Effect.flatten
@@ -106,7 +105,8 @@ export function sendStream<A, E, R>(send: Schema.Schema<any, A>, reply: Schema.S
       Effect.map((response) =>
         pipe(
           Stream.fromAsyncIterable(response.body, (e) => FetchError(url, "", e)),
-          Stream.mapEffect((data) => jsonParse(data.toString(), reply)),
+          Stream.tap((response) => Effect.logDebug(url + " body: " + response)),
+          Stream.mapEffect((data) => jsonParse(typeof data === "string" ? data : data.toString(), reply)),
           Stream.mapEffect((_) => _)
         )
       ),

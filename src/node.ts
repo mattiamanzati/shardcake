@@ -1,6 +1,7 @@
 /**
  * @since 1.0.0
  */
+import * as Duration from "@effect/data/Duration"
 import * as Either from "@effect/data/Either"
 import { pipe } from "@effect/data/Function"
 import * as Cause from "@effect/io/Cause"
@@ -69,15 +70,25 @@ export function asHttpServer<A2, A>(
                               pipe(
                                 jsonStringify(Either.right(value), schema),
                                 Effect.orDie,
-                                Effect.flatMap((data) => Effect.sync(() => response.write(data)))
+                                Effect.flatMap((data) => Effect.sync(() => response.write(data))),
+                                Effect.zipLeft(Effect.sleep(Duration.millis(100))) // TODO: write buffers WTF
                               )
                             ),
                             Stream.runDrain
                           )
                         ),
-                        Effect.catchAll((error) => jsonStringify(Either.left(error), schema)),
-                        Effect.flatMap((data) => Effect.sync(() => response.write(data))),
-                        Effect.catchAllCause(() => Effect.sync(() => response.end()))
+                        Effect.catchAll((error) =>
+                          pipe(
+                            jsonStringify(Either.left(error), schema),
+                            Effect.flatMap((data) =>
+                              Effect.sync(() => {
+                                response.write(data)
+                              })
+                            )
+                          )
+                        ),
+                        Effect.catchAllCause((e) => Effect.sync(() => response.write(JSON.stringify(e)))),
+                        Effect.flatMap((_) => Effect.sync(() => response.end()))
                       )
 
                   return handler(req, reply as any, replyStream as any)
