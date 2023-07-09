@@ -6,11 +6,11 @@ import * as Option from "@effect/data/Option"
 import type * as Cause from "@effect/io/Cause"
 import * as Deferred from "@effect/io/Deferred"
 import * as Effect from "@effect/io/Effect"
+import * as Exit from "@effect/io/Exit"
 import * as Queue from "@effect/io/Queue"
 import type { Throwable } from "@effect/shardcake/ShardError"
 import * as Stream from "@effect/stream/Stream"
 import * as Take from "@effect/stream/Take"
-
 /**
  * @since 1.0.0
  * @category symbol
@@ -125,8 +125,7 @@ export function fromQueue<A>(queue: Queue.Queue<Take.Take<Throwable, A>>): Queue
     replyStream: (stream) =>
       pipe(
         Stream.runForEach(stream, (a) => Queue.offer(queue, Take.of(a))),
-        Effect.zipRight(end),
-        Effect.catchAllCause(fail),
+        Effect.onExit((_) => Queue.offer(queue, Exit.match(_, (e) => Take.failCause(e), () => Take.end))),
         Effect.fork,
         Effect.asUnit
       ),
