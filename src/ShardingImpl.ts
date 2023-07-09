@@ -437,6 +437,7 @@ function make(
                         Effect.flatMap(replyChannel.replySingle)
                       )
                     }
+                    console.log("replier not found in", msg)
                     return Effect.die(NotAMessageWithReplier(msg))
                   }
                 )
@@ -723,10 +724,10 @@ function make(
             pipe(
               entityManager.send(msg.entityId, _, msg.replyId, replyChannel),
               Effect.as(
-                Message.isMessage<any>(msg) ?
-                  Option.some(msg.replier.schema) :
-                  StreamMessage.isStreamMessage<any>(msg) ?
-                  Option.some(msg.replier.schema) :
+                Message.isMessage(_) ?
+                  Option.some(_.replier.schema) :
+                  StreamMessage.isStreamMessage(_) ?
+                  Option.some(_.replier.schema) :
                   Option.none()
               )
             )
