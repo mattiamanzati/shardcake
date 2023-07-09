@@ -8,9 +8,10 @@ import type * as Deferred from "@effect/io/Deferred"
 import * as Effect from "@effect/io/Effect"
 import type * as Queue from "@effect/io/Queue"
 import type * as BinaryMessage from "@effect/shardcake/BinaryMessage"
+import type * as ByteArray from "@effect/shardcake/ByteArray"
 import type { Replier } from "@effect/shardcake/Replier"
 import type * as ReplyId from "@effect/shardcake/ReplyId"
-import type { EntityTypeNotRegistered } from "@effect/shardcake/ShardError"
+import type { EntityTypeNotRegistered, Throwable } from "@effect/shardcake/ShardError"
 import type * as StreamReplier from "@effect/shardcake/StreamReplier"
 import type * as Stream from "@effect/stream/Stream"
 
@@ -76,6 +77,12 @@ export interface Sharding {
     msg: BinaryMessage.BinaryMessage,
     replyChannel: ReplyChannel.ReplyChannel<any>
   ): Effect.Effect<never, EntityTypeNotRegistered, Option.Option<Schema.Schema<any, any>>>
+  sendToLocalEntityStreamingReply(
+    msg: BinaryMessage.BinaryMessage
+  ): Stream.Stream<never, Throwable, ByteArray.ByteArray>
+  sendToLocalEntitySingleReply(
+    msg: BinaryMessage.BinaryMessage
+  ): Effect.Effect<never, Throwable, Option.Option<ByteArray.ByteArray>>
   getPods: Effect.Effect<never, never, HashSet.HashSet<PodAddress.PodAddress>>
 }
 

@@ -5,6 +5,7 @@ import * as Effect from "@effect/io/Effect"
 import * as Schema from "@effect/schema/Schema"
 import * as ReplyId from "@effect/shardcake/ReplyId"
 import * as Sharding from "@effect/shardcake/Sharding"
+import type * as Stream from "@effect/stream/Stream"
 
 /**
  * @since 1.0.0
@@ -26,7 +27,7 @@ export interface StreamReplier<R> {
   [TypeId]: {}
   id: ReplyId.ReplyId
   schema: Schema.Schema<any, R>
-  reply: (reply: R) => Effect.Effect<Sharding.Sharding, never, void>
+  reply: (reply: Stream.Stream<never, never, R>) => Effect.Effect<Sharding.Sharding, never, void>
 }
 
 /**

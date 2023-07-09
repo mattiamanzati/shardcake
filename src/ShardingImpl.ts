@@ -272,7 +272,11 @@ function make(
 
   function sendToLocalEntitySingleReply(
     msg: BinaryMessage.BinaryMessage
-  ): Effect.Effect<never, Throwable, Option.Option<ByteArray.ByteArray>> {
+  ): Effect.Effect<
+    never,
+    Throwable,
+    Option.Option<ByteArray.ByteArray>
+  > {
     return Effect.gen(function*(_) {
       const replyChannel = yield* _(ReplyChannel.single<any>())
       const schema = yield* _(sendToLocalEntity(msg, replyChannel))
@@ -415,9 +419,7 @@ function make(
       return pipe(
         serialization.encode(msg, msgSchema),
         Effect.flatMap((bytes) => {
-          const errorHandling = (_: Throwable) => pipe(
-Effect.whenCase(() => isPodUnavailableError(_), b => )
-          )
+          const errorHandling = (_: Throwable) => Effect.unit()
 
           const binaryMessage = BinaryMessage.make(entityId, recipientTypeName, bytes, replyId)
 
@@ -762,6 +764,8 @@ Effect.whenCase(() => isPodUnavailableError(_), b => )
     assign,
     unassign,
     sendToLocalEntity,
+    sendToLocalEntitySingleReply,
+    sendToLocalEntityStreamingReply,
     getPods,
     replyStream
   }

@@ -4,6 +4,7 @@
 import { pipe } from "@effect/data/Function"
 import * as HashSet from "@effect/data/HashSet"
 import * as Effect from "@effect/io/Effect"
+import { isEntityTypeNotRegistered } from "@effect/shardcake/ShardError"
 import * as Sharding from "@effect/shardcake/Sharding"
 import * as ShardingConfig from "@effect/shardcake/ShardingConfig"
 import * as ShardingProtocolHttp from "@effect/shardcake/ShardingProtocolHttp"
@@ -33,7 +34,10 @@ export const shardingServiceHttp = <R, E, B>(fa: Effect.Effect<R, E, B>) =>
                     Effect.as(sharding.unassign(HashSet.fromIterable(req.shards)), true)
                   )
                 case "Send":
-                  return reply(ShardingProtocolHttp.SendResult_)(sharding.sendToLocalEntity(req.message))
+                  return reply(ShardingProtocolHttp.SendResult_)(pipe(
+                    sharding.sendToLocalEntitySingleReply(req.message),
+                    Effect.catchAll((e) => isEntityTypeNotRegistered(e) ? Effect.fail(e) : Effect.die(e))
+                  ))
                 case "PingShards":
                   return reply(ShardingProtocolHttp.PingShardsResult_)(Effect.succeed(true))
               }
