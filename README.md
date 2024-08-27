@@ -1,3 +1,2 @@
-WIP.
-
-Docs: https://effect-ts.github.io/cluster
+DEVELOPMENT HAS MOVED TO THE MONOREPO:
+https://github.com/Effect-TS/effect
